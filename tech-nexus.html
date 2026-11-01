@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tech Nexus — Logo Video Generator</title>
+    <style>
+        :root {
+            --bg: #0b1220;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: #e8eef7;
+            font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 18px;
+            padding: 28px
+        }
+
+        h1 {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            margin: 0;
+            opacity: .9
+        }
+
+        .stage {
+            position: relative;
+            width: min(92vw, 520px);
+            aspect-ratio: 1/1;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, .5)
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block
+        }
+
+        .bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #06283d;
+            background: #34a8ec;
+            transition: .2s;
+            box-shadow: 0 6px 18px rgba(52, 168, 236, .35)
+        }
+
+        button:hover {
+            background: #5bbcf2;
+            transform: translateY(-1px)
+        }
+
+        button:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            transform: none
+        }
+
+        button.ghost {
+            background: transparent;
+            color: #9fb3c8;
+            box-shadow: none;
+            border: 1px solid #2a3a4f
+        }
+
+        button.ghost:hover {
+            color: #e8eef7;
+            border-color: #34a8ec
+        }
+
+        #status {
+            font-size: 13px;
+            color: #8fa6bd;
+            min-height: 18px;
+            text-align: center
+        }
+
+        small {
+            color: #5f768d;
+        }
+
+        .hint {
+            max-width: 520px;
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: #7e93aa;
+            text-align: center
+        }
+
+        .hint b {
+            color: #b9cbe0
+        }
+    </style>
+</head>
+
+<body>
+    <h1>TECH NEXUS SYSTEMS PVT LTD — Animated Logo</h1>
+
+    <div class="stage">
+        <canvas id="cv" width="1080" height="1080"></canvas>
+    </div>
+
+    <div class="bar">
+        <button id="rec">▶ Generate &amp; Download Video</button>
+        <button id="loop" class="ghost">↻ Live Preview: ON</button>
+    </div>
+    <div id="status">Live preview running. Click the blue button to render &amp; save the video.</div>
+
+    <p class="hint">
+        <b>How to use:</b> Save this file as <b>tech-nexus.html</b>, open it in
+        <b>Chrome or Edge</b>, then click <b>▶ Generate &amp; Download Video</b>.
+        A ~6‑second <b>.webm</b> video is recorded straight from the canvas and saved to your
+        Downloads folder. Need <b>.mp4</b>? Drop the .webm into any free converter
+        (CloudConvert / VLC / HandBrake) — or right‑click the preview and screen‑record it.
+    </p>
+
+    <script>
+        (() => {
+            const cv = document.getElementById('cv');
+            const ctx = cv.getContext('2d');
+            const W = cv.width, H = cv.height;          // 1080 x 1080 internal
+            const DURATION = 6.0;                       // seconds of recorded video
+
+            // ---- palette (sampled from your logo) ----
+            const BLUE = '#2fa8ee';
+            const WHITE = '#ffffff';
+            const ORANGE = '#e8845a';
+
+            // ---- icon geometry (center of the network node) ----
+            const CX = 540, CY = 410;
+            const CENTER_R = 26;
+            const nodes = [
+                { dx: -95, dy: -120, r: 42, type: 'ring', start: 1.20 }, // top-left big ring
+                { dx: 95, dy: 120, r: 42, type: 'ring', start: 1.35 }, // bottom-right big ring
+                { dx: 70, dy: -110, r: 18, type: 'dot', start: 1.70 }, // top-right orange
+                { dx: -115, dy: 25, r: 18, type: 'dot', start: 1.85 }, // left orange
+                { dx: -45, dy: 150, r: 18, type: 'dot', start: 2.00 }, // bottom orange
+            ];
+
+            // ---- easings ----
+            const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+            const easeOut = x => 1 - Math.pow(1 - x, 3);
+            const easeBack = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+            const seg = (t, s, d) => clamp((t - s) / d);                 // 0..1 progress inside a segment
+
+            // ---- text layout helpers ----
+            function drawTracked(text, cx, cy, font, color, track, alpha, rise = 0) {
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = color;
+                ctx.font = font;
+                ctx.textBaseline = 'alphabetic';
+                // measure total width including tracking
+                let widths = [...text].map(ch => ctx.measureText(ch).width);
+                let total = widths.reduce((a, b) => a + b, 0) + track * (text.length - 1);
+                let x = cx - total / 2;
+                ctx.translate(0, rise);
+                for (let i = 0; i < text.length; i++) {
+                    ctx.fillText(text[i], x, cy);
+                    x += widths[i] + track;
+                }
+                ctx.restore();
+            }
+            function drawTrackedLetters(text, cx, cy, font, color, track, t, baseStart, per, dur) {
+                ctx.save();
+                ctx.font = font; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = color;
+                let widths = [...text].map(ch => ctx.measureText(ch).width);
+                let total = widths.reduce((a, b) => a + b, 0) + track * (text.length - 1);
+                let x = cx - total / 2;
+                for (let i = 0; i < text.length; i++) {
+                    const p = seg(t, baseStart + i * per, dur);
+                    const a = p;
+                    const ry = (1 - easeOut(p)) * 34;
+                    ctx.globalAlpha = a;
+                    if (text[i] !== ' ') ctx.fillText(text[i], x, cy + ry);
+                    x += widths[i] + track;
+                }
+                ctx.restore();
+            }
+
+            // ---- node drawing ----
+            function ring(x, y, r, lw, color, alpha, glow) {
+                ctx.save(); ctx.globalAlpha = alpha;
+                ctx.strokeStyle = color; ctx.lineWidth = lw;
+                if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
+                ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); ctx.stroke();
+                ctx.restore();
+            }
+            function dot(x, y, r, color, alpha, glow) {
+                ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color;
+                if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
+                ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+            function line(x1, y1, x2, y2, p, lw, alpha) {
+                if (p <= 0) return;
+                const ex = x1 + (x2 - x1) * p, ey = y1 + (y2 - y1) * p;
+                ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = WHITE;
+                ctx.lineWidth = lw; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(ex, ey); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ---- master frame renderer ----
+            function render(t) {
+                // background
+                ctx.clearRect(0, 0, W, H);
+                const bgA = seg(t, 0, 0.5);
+                ctx.globalAlpha = 1; ctx.fillStyle = BLUE; ctx.fillRect(0, 0, W, H);
+                ctx.globalAlpha = 1 - bgA; ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, W, H);
+                ctx.globalAlpha = 1;
+
+                // idle pulse after the reveal settles
+                const pulse = t > 4.0 ? Math.sin((t - 4.0) * 2.2) * 0.06 : 0;
+
+                // connection lines (draw outward from center)
+                nodes.forEach(n => {
+                    const lp = seg(t, 0.55 + n.start * 0.18, 0.9);   // staggered line growth
+                    line(CX, CY, CX + n.dx, CY + n.dy, easeOut(lp), 7, 0.95 * seg(t, 0.5, 0.4));
+                });
+
+                // center node
+                {
+                    const cp = seg(t, 0.40, 0.5);
+                    const s = easeBack(cp);
+                    ring(CX, CY, CENTER_R * (1 + pulse) * s, 8, WHITE, cp, 18 * cp);
+                }
+
+                // outer nodes
+                nodes.forEach(n => {
+                    const np = seg(t, n.start, 0.55);
+                    const s = easeBack(np);
+                    const x = CX + n.dx, y = CY + n.dy;
+                    if (n.type === 'ring') {
+                        ring(x, y, n.r * (1 + pulse) * s, 8, WHITE, np, 16 * np);
+                    } else {
+                        dot(x, y, n.r * (1 + pulse * 1.5) * s, ORANGE, np, 14 * np);
+                    }
+                });
+
+                // ---- text block ----
+                const titleFont = 'bold 96px "Segoe UI", Arial, sans-serif';
+                drawTrackedLetters('TECH NEXUS', 540, 720, titleFont, WHITE, 6, t, 2.45, 0.05, 0.45);
+
+                const subFont = '300 34px "Segoe UI", Arial, sans-serif';
+                const s1 = seg(t, 3.30, 0.5), s2 = seg(t, 3.50, 0.5);
+                drawTracked('SYSTEMS PVT', 540, 800, subFont, WHITE, 9, s1, (1 - easeOut(s1)) * 16);
+                drawTracked('LTD', 540, 852, subFont, WHITE, 9, s2, (1 - easeOut(s2)) * 16);
+            }
+
+            // ---- playback engine ----
+            let mode = 'loop';          // 'loop' = endless preview, 'once' = recording pass
+            let t0 = performance.now();
+            let rafId = null;
+            const statusEl = document.getElementById('status');
+
+            function tick(now) {
+                let t;
+                if (mode === 'loop') { t = ((now - t0) / 1000) % (DURATION + 1.2); }   // hold tail then restart
+                else { t = (now - t0) / 1000; if (t > DURATION) t = DURATION; }
+                render(t);
+                if (mode === 'once' && t >= DURATION) { /* recorder stop handled outside */ }
+                rafId = requestAnimationFrame(tick);
+            }
+            function startLoop() { mode = 'loop'; t0 = performance.now(); if (!rafId) rafId = requestAnimationFrame(tick); }
+            startLoop();
+
+            // ---- recording ----
+            const recBtn = document.getElementById('rec');
+            const loopBtn = document.getElementById('loop');
+
+            loopBtn.addEventListener('click', () => {
+                if (mode === 'loop') { /* already looping */ statusEl.textContent = 'Live preview running.'; return; }
+            });
+
+            function pickMime() {
+                const opts = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+                for (const m of opts) { if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; }
+                return '';
+            }
+
+            recBtn.addEventListener('click', async () => {
+                if (!window.MediaRecorder) { alert('Your browser cannot record video. Use Chrome or Edge.'); return; }
+                recBtn.disabled = true; loopBtn.disabled = true;
+                statusEl.textContent = 'Rendering… please wait (~6 s).';
+
+                // switch to a single timed pass
+                mode = 'once'; t0 = performance.now();
+                if (!rafId) rafId = requestAnimationFrame(tick);
+
+                const stream = cv.captureStream(30);
+                const mime = pickMime();
+                const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8_000_000 } : undefined);
+                const chunks = [];
+                rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+                rec.onstop = () => {
+                    const blob = new Blob(chunks, { type: mime || 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const ext = (mime && mime.includes('mp4')) ? 'mp4' : 'webm';
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `tech-nexus-logo.${ext}`; a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 4000);
+                    statusEl.textContent = `Done ✔  Saved tech-nexus-logo.${ext} to your Downloads.`;
+                    recBtn.disabled = false; loopBtn.disabled = false;
+                    startLoop();   // back to live preview
+                };
+
+                rec.start();
+                // stop exactly when the timed pass finishes
+                const wait = () => {
+                    const t = (performance.now() - t0) / 1000;
+                    if (t >= DURATION + 0.1) { rec.stop(); }
+                    else requestAnimationFrame(wait);
+                };
+                wait();
+            });
+        })();
+    </script>
+</body>
+
+</html>
